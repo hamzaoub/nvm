@@ -1,0 +1,318 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AI Meeting Assistant API - AWS Microservice'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+Resources:
+  # API Gateway
+  MeetingAssistantApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub meeting-assistant-api-${Environment}
+      Description: API for AI meeting assistant services
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Resources and Methods
+  ApiResourceMeetings:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ParentId: !GetAtt MeetingAssistantApi.RootResourceId
+      PathPart: meetings
+
+  # Transcribe Resource
+  ApiResourceTranscribe:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ParentId: !Ref ApiResourceMeetings
+      PathPart: transcribe
+
+  ApiMethodTranscribe:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ResourceId: !Ref ApiResourceTranscribe
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MeetingAssistantFunction.Arn}/invocations
+
+  # Summarize Resource
+  ApiResourceSummarize:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ParentId: !Ref ApiResourceMeetings
+      PathPart: summarize
+
+  ApiMethodSummarize:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ResourceId: !Ref ApiResourceSummarize
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MeetingAssistantFunction.Arn}/invocations
+
+  # Extract Actions Resource
+  ApiResourceExtractActions:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ParentId: !Ref ApiResourceMeetings
+      PathPart: extract-actions
+
+  ApiMethodExtractActions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ResourceId: !Ref ApiResourceExtractActions
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MeetingAssistantFunction.Arn}/invocations
+
+  # Generate Followup Resource
+  ApiResourceGenerateFollowup:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ParentId: !Ref ApiResourceMeetings
+      PathPart: generate-followup
+
+  ApiMethodGenerateFollowup:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ResourceId: !Ref ApiResourceGenerateFollowup
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MeetingAssistantFunction.Arn}/invocations
+
+  # Search Resource
+  ApiResourceSearch:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ParentId: !Ref ApiResourceMeetings
+      PathPart: search
+
+  ApiMethodSearch:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ResourceId: !Ref ApiResourceSearch
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MeetingAssistantFunction.Arn}/invocations
+
+  # Meeting Details Resource (with path parameter)
+  ApiResourceMeetingDetails:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ParentId: !Ref ApiResourceMeetings
+      PathPart: '{meeting_id}'
+
+  ApiMethodMeetingDetails:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      ResourceId: !Ref ApiResourceMeetingDetails
+      HttpMethod: GET
+      AuthorizationType: NONE
+      RequestParameters:
+        method.request.path.meeting_id: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MeetingAssistantFunction.Arn}/invocations
+
+  # API Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiMethodTranscribe
+      - ApiMethodSummarize
+      - ApiMethodExtractActions
+      - ApiMethodGenerateFollowup
+      - ApiMethodSearch
+      - ApiMethodMeetingDetails
+    Properties:
+      RestApiId: !Ref MeetingAssistantApi
+      StageName: !Ref Environment
+
+  # Lambda Function
+  MeetingAssistantFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub meeting-assistant-api-${Environment}
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          MEETINGS_TABLE: !Ref MeetingsTable
+          TRANSCRIPTS_TABLE: !Ref TranscriptsTable
+          ACTIONS_TABLE: !Ref ActionsTable
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Sub ${Environment}/meeting-assistant-api/lambda.zip
+
+  # Lambda Permission for API Gateway
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MeetingAssistantFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MeetingAssistantApi}/*
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: MeetingAssistantPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt MeetingsTable.Arn
+                  - !GetAtt TranscriptsTable.Arn
+                  - !GetAtt ActionsTable.Arn
+              - Effect: Allow
+                Action:
+                  - comprehend:DetectEntities
+                  - comprehend:DetectKeyPhrases
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - transcribe:StartTranscriptionJob
+                  - transcribe:GetTranscriptionJob
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:PutTargets
+                Resource: '*'
+
+  # DynamoDB Tables
+  MeetingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub meeting-assistant-meetings-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: meeting_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: meeting_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  TranscriptsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub meeting-assistant-transcripts-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: meeting_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: meeting_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  ActionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub meeting-assistant-actions-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: action_id
+          AttributeType: S
+        - AttributeName: meeting_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: action_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: MeetingIdIndex
+          KeySchema:
+            - AttributeName: meeting_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # S3 Bucket for Deployment Artifacts
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub meeting-assistant-deployment-${Environment}-${AWS::AccountId}
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${MeetingAssistantApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+
+  MeetingsTableName:
+    Description: DynamoDB table for storing meeting data
+    Value: !Ref MeetingsTable
+
+  TranscriptsTableName:
+    Description: DynamoDB table for storing meeting transcripts
+    Value: !Ref TranscriptsTable
+
+  ActionsTableName:
+    Description: DynamoDB table for storing action items
+    Value: !Ref ActionsTable

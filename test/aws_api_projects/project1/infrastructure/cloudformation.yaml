@@ -1,0 +1,420 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Content Transformation API - AWS Microservice'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+Resources:
+  # API Gateway
+  ContentTransformationApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub content-transformation-api-${Environment}
+      Description: API for content transformation services
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Resources and Methods
+  ApiResourceTransform:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ParentId: !GetAtt ContentTransformationApi.RootResourceId
+      PathPart: transform
+
+  # Text to Speech Resource
+  ApiResourceTextToSpeech:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ParentId: !Ref ApiResourceTransform
+      PathPart: text-to-speech
+
+  ApiMethodTextToSpeech:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ResourceId: !Ref ApiResourceTextToSpeech
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContentTransformationFunction.Arn}/invocations
+
+  # Speech to Text Resource
+  ApiResourceSpeechToText:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ParentId: !Ref ApiResourceTransform
+      PathPart: speech-to-text
+
+  ApiMethodSpeechToText:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ResourceId: !Ref ApiResourceSpeechToText
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContentTransformationFunction.Arn}/invocations
+
+  # Text to Image Resource
+  ApiResourceTextToImage:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ParentId: !Ref ApiResourceTransform
+      PathPart: text-to-image
+
+  ApiMethodTextToImage:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ResourceId: !Ref ApiResourceTextToImage
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContentTransformationFunction.Arn}/invocations
+
+  # Image to Text Resource
+  ApiResourceImageToText:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ParentId: !Ref ApiResourceTransform
+      PathPart: image-to-text
+
+  ApiMethodImageToText:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ResourceId: !Ref ApiResourceImageToText
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContentTransformationFunction.Arn}/invocations
+
+  # Text to Video Resource
+  ApiResourceTextToVideo:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ParentId: !Ref ApiResourceTransform
+      PathPart: text-to-video
+
+  ApiMethodTextToVideo:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ResourceId: !Ref ApiResourceTextToVideo
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContentTransformationFunction.Arn}/invocations
+
+  # Status Resource
+  ApiResourceStatus:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ParentId: !Ref ApiResourceTransform
+      PathPart: status
+
+  ApiMethodStatus:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      ResourceId: !Ref ApiResourceStatus
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContentTransformationFunction.Arn}/invocations
+
+  # API Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiMethodTextToSpeech
+      - ApiMethodSpeechToText
+      - ApiMethodTextToImage
+      - ApiMethodImageToText
+      - ApiMethodTextToVideo
+      - ApiMethodStatus
+    Properties:
+      RestApiId: !Ref ContentTransformationApi
+      StageName: !Ref Environment
+
+  # Lambda Function
+  ContentTransformationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub content-transformation-api-${Environment}
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          TRANSFORM_QUEUE_URL: !Ref TransformationQueue
+          STORAGE_BUCKET_NAME: !Ref StorageBucket
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Sub ${Environment}/content-transformation-api/lambda.zip
+
+  # Lambda Permission for API Gateway
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ContentTransformationFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ContentTransformationApi}/*
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ContentTransformationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub ${StorageBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt TransformationQueue.Arn
+
+  # SQS Queue for Transformation Jobs
+  TransformationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub content-transformation-queue-${Environment}
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600  # 14 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TransformationDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  # Dead Letter Queue
+  TransformationDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub content-transformation-dlq-${Environment}
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # S3 Bucket for Storage
+  StorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub content-transformation-storage-${Environment}-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldJobs
+            Status: Enabled
+            ExpirationInDays: 30
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3600
+
+  # S3 Bucket for Deployment Artifacts
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub content-transformation-deployment-${Environment}-${AWS::AccountId}
+
+  # ECS Cluster for Transformation Workers
+  TransformationCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub content-transformation-cluster-${Environment}
+
+  # ECS Task Definition
+  TransformationTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub content-transformation-task-${Environment}
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: transformer
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/content-transformation:latest
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref TransformationLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: transformer
+          Environment:
+            - Name: TRANSFORM_QUEUE_URL
+              Value: !Ref TransformationQueue
+            - Name: STORAGE_BUCKET_NAME
+              Value: !Ref StorageBucket
+
+  # ECS Service
+  TransformationService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub content-transformation-service-${Environment}
+      Cluster: !Ref TransformationCluster
+      TaskDefinition: !Ref TransformationTaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetB
+
+  # ECS Execution Role
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ECS Task Role
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TransformationTaskPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub ${StorageBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt TransformationQueue.Arn
+
+  # CloudWatch Log Group
+  TransformationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/content-transformation-${Environment}
+      RetentionInDays: 30
+
+  # Security Group for ECS Tasks
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Content Transformation ECS tasks
+      VpcId: !Ref VPC
+
+  # VPC and Subnets (simplified - in a real scenario, you might reference existing ones)
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub content-transformation-vpc-${Environment}
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub content-transformation-subnet-a-${Environment}
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub content-transformation-subnet-b-${Environment}
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ContentTransformationApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+
+  StorageBucketName:
+    Description: S3 bucket for storing transformation jobs and results
+    Value: !Ref StorageBucket
+
+  TransformationQueueUrl:
+    Description: SQS queue URL for transformation jobs
+    Value: !Ref TransformationQueue
+
+  TransformationClusterName:
+    Description: ECS cluster name for transformation workers
+    Value: !Ref TransformationCluster
